@@ -1,0 +1,40 @@
+# === Flutter/Dart 관련 ===
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/                          # 이 부분이 거대한 build 폴더를 제외해줍니다.
+
+# === Android 관련 (혹시 모를 대비) ===
+.gradle/
+local.properties
+*.kwks
+*.keystore
+*.jks
+
+# === iOS/macOS 관련 ===
+.generated/
+DerivedData/
+*.moved-aside
+*.spec
+*.ipa
+*.xcuserstate
+
+# === Windows 관련 (주인님께 가장 중요) ===
+# 빌드 결과물 및 Visual Studio 임시 파일 제외
+cmake-build-debug/
+cmake-build-release/
+/build/windows/
+Visual Studio/
+*.vcxproj
+*.user
+*.sln
+*.filters
+
+# === 기타 OS 및 IDE 관련 ===
+.DS_Store
+.idea/                          # Android Studio/IntelliJ 설정
+.vscode/                        # VS Code 설정 (개인 취향이라 제외 권장)
+*.log
