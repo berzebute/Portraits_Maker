@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'base_game.dart';
 
-class PillarsOfEternity1Game extends BaseGame {
+class IWD2Game extends BaseGame {
   @override
-  String get name => "Pillars of Eternity I";
+  String get name => "Icewind Dale 2 Classic";
 
   @override
   List<String> get stepKeys => ['L', 'S'];
@@ -13,18 +13,21 @@ class PillarsOfEternity1Game extends BaseGame {
   @override
   Map<String, Size> get targetSizes => {
     'L': const Size(210, 330),
-    'S': const Size(76, 96),
+    'S': const Size(42, 42), // IWD2 전용 정사각형 규격
   };
 
   @override
   String get extension => ".BMP";
 
   @override
-  String getFileName(String baseName, String stepKey) => "${baseName}_$stepKey$extension";
+  String getFileName(String baseName, String stepKey) {
+    String shortName = baseName.length > 7 ? baseName.substring(0, 7) : baseName;
+    return "${shortName.toUpperCase()}$stepKey$extension";
+  }
 
   @override
   Uint8List encodeImage(img.Image image) {
-    // 24비트 BMP 로직 (중괄호 포함)
+    // 어제 만드신 24비트 BMP 인코딩 로직 계승
     int width = image.width;
     int height = image.height;
     int rowSize = ((width * 3 + 3) ~/ 4) * 4;
@@ -34,10 +37,11 @@ class PillarsOfEternity1Game extends BaseGame {
     header.setUint32(2, bmp.length, Endian.little);
     header.setUint32(10, 54, Endian.little);
     header.setUint32(14, 40, Endian.little);
-    header.setUint32(18, width, Endian.little);
-    header.setUint32(22, height, Endian.little);
+    header.setUint16(18, width, Endian.little);
+    header.setUint16(22, height, Endian.little);
     header.setUint16(26, 1, Endian.little);
     header.setUint16(28, 24, Endian.little);
+    header.setUint32(34, rowSize * height, Endian.little);
     
     int pos = 54;
     for (int y = height - 1; y >= 0; y--) {

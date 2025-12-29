@@ -6,6 +6,8 @@ import 'package:image/image.dart' as img;
 
 import 'games/base_game.dart';
 import 'games/infinity.dart';
+import 'games/originbg.dart';       
+import 'games/originiwd2.dart';     
 import 'games/pathfinder.dart';
 import 'games/pillars_of_eternity.dart';
 import 'games/pillars_of_eternity2.dart';
@@ -37,8 +39,10 @@ class PortraitEditor extends StatefulWidget {
 class _PortraitEditorState extends State<PortraitEditor> {
   final List<BaseGame> _games = [
     InfinityEngineGame(),
+    OriginBGGame(),        
+    IWD2Game(),            
     PathfinderGame(),
-    PillarsOfEternityGame(),
+    PillarsOfEternity1Game(),
     PillarsOfEternity2Game(),
   ];
 
@@ -125,6 +129,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
     });
   }
 
+  // 🛡️ 수정된 저장 로직: 메시지 색상을 흰색으로 변경
   Future<void> _saveAll() async {
     final String baseDir = Directory.current.path;
     String safeGameName = _selectedGame.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
@@ -152,9 +157,27 @@ class _PortraitEditorState extends State<PortraitEditor> {
           await File("$path/${_selectedGame.getFileName(charName, key)}").writeAsBytes(_selectedGame.encodeImage(finalImg));
         }
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('[$charName] 연성 완료: $path'), backgroundColor: Colors.blueGrey.shade800));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '[$charName] 연성 완료: $path', 
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold) // 글자색 흰색
+            ), 
+            backgroundColor: const Color(0xFF2C2C2C), // 배경을 더 어두운 회색으로
+            duration: const Duration(seconds: 4),
+          )
+        );
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('저장 실패: $e'), backgroundColor: Colors.redAccent));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('저장 실패: $e', style: const TextStyle(color: Colors.white)), 
+            backgroundColor: Colors.redAccent
+          )
+        );
+      }
     }
   }
 
@@ -173,9 +196,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
   }
 
   Widget _buildCroppingView() {
-    // 현재 단계의 키 (L, M, Small 등)를 가져옵니다.
     String currentStepKey = _selectedGame.stepKeys[_stepIdx];
-
     return LayoutBuilder(builder: (context, constraints) {
       double availableW = constraints.maxWidth - 80;
       double availableH = constraints.maxHeight - 80;
@@ -206,7 +227,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
                 padding: const EdgeInsets.only(bottom: 20), 
                 child: ElevatedButton(
                   onPressed: () => _cropCurrent(drawW, drawH), 
-                  child: Text("[$currentStepKey 단계] 영역 확정") // 숫자가 아닌 키값으로 표시
+                  child: Text("[$currentStepKey 단계] 영역 확정")
                 )
               )
             ),
@@ -282,7 +303,6 @@ class _PortraitEditorState extends State<PortraitEditor> {
   Widget _buildResultView() {
     return LayoutBuilder(builder: (context, constraints) {
       double imageHeight = constraints.maxHeight * 0.55;
-
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text("${_selectedGame.name} 연성 결과", style: const TextStyle(fontSize: 22, color: Colors.amber, fontWeight: FontWeight.bold)),
@@ -294,9 +314,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
               int currentH = _croppedRaws[key]?.height ?? 0;
               int targetW = (_selectedGame.targetSizes[key]!.width * (_scalePercent / 100.0)).toInt();
               int targetH = (_selectedGame.targetSizes[key]!.height * (_scalePercent / 100.0)).toInt();
-              
               bool willResize = currentW > targetW || currentH > targetH;
-
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
@@ -315,8 +333,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
                         children: [
                           Text("현재 크기: ${currentW}x$currentH", style: const TextStyle(fontSize: 12, color: Colors.white70)),
                           if (willResize)
-                            Text("(저장 시 ${targetW}x$targetH로 조정됨)", 
-                                 style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.bold))
+                            Text("(저장 시 ${targetW}x$targetH로 조정됨)", style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.bold))
                           else
                             const Text("(원본 크기로 저장됨)", style: TextStyle(fontSize: 11, color: Colors.greenAccent)),
                         ],
