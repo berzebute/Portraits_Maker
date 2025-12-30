@@ -5,7 +5,7 @@ import 'base_game.dart';
 
 class InfinityEngineGame extends BaseGame {
   @override
-  String get name => "Baldur's Gate 2 EE";
+  String get name => "D&D EE (BG1, BG2, IWD1)";
 
   @override
   List<String> get stepKeys => ['L', 'M'];

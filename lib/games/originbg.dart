@@ -5,7 +5,7 @@ import 'base_game.dart';
 
 class OriginBGGame extends BaseGame {
   @override
-  String get name => "Baldur's Gate Classic";
+  String get name => "D&D Classics (BG1, BG2, IWD1)";
 
   @override
   List<String> get stepKeys => ['L', 'M', 'S'];

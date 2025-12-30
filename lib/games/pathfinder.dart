@@ -5,17 +5,17 @@ import 'base_game.dart';
 
 class PathfinderGame extends BaseGame {
   @override
-  String get name => "Pathfinder: Kingmaker";
+  String get name => "Pathfinder: Kingmaker&WotR";
 
   @override
   String get extension => "png";
 
   @override
-  List<String> get stepKeys => ["Large", "Medium", "Small"];
+  List<String> get stepKeys => ["Fulllength", "Medium", "Small"];
 
   @override
   Map<String, Size> get targetSizes => {
-        "Large": const Size(692, 1024),
+        "Fulllength": const Size(692, 1024),
         "Medium": const Size(330, 432),
         "Small": const Size(185, 242),
       };
@@ -23,8 +23,8 @@ class PathfinderGame extends BaseGame {
   @override
   String getFileName(String charName, String key) {
     switch (key) {
-      case "Large":
-        return "Large.png";
+      case "Fulllength":
+        return "Fulllength.png";
       case "Medium":
         return "Medium.png";
       case "Small":

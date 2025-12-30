@@ -13,6 +13,23 @@
 
 ---
 
+## 지원되는 게임
+
+* EE (BG1, BG2, IWD1)
+* Classics D&D Games (BG1, BG2, IWD1, IWD2)
+* Pathfinder (Kingmaker, WotR)
+* Pillars of Eterniry 1, 2
+
+---
+
+## 주요 특징 (Key Features)
+
+* **고화질 리사이징:** Average 보간법을 적용, 이미지를 축소할 때 발생하는 거친 선이나 계단 현상을 방지하고 부드럽고 자연스러운 화질을 유지합니다.
+* **최적화 해상도 (Resolution)**
+* **확장자 자동 변환:** 각 게임에 맞는 확장자를 자동으로 맞춰줍니다.
+
+---
+
 ## 🚀 시작하기 (Getting Started)
 
 ### 설치 및 실행

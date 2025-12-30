@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+import 'package:url_launcher/url_launcher.dart'; 
 
 import 'games/base_game.dart';
 import 'games/infinity.dart';
@@ -10,7 +11,6 @@ import 'games/originbg.dart';
 import 'games/originiwd2.dart';     
 import 'games/pathfinder.dart';
 import 'games/pillars_of_eternity.dart';
-import 'games/pillars_of_eternity2.dart';
 
 void main() => runApp(const PortraitApp());
 
@@ -42,8 +42,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
     OriginBGGame(),        
     IWD2Game(),            
     PathfinderGame(),
-    PillarsOfEternity1Game(),
-    PillarsOfEternity2Game(),
+    PillarsOfEternityGame(),
   ];
 
   late BaseGame _selectedGame;
@@ -61,30 +60,75 @@ class _PortraitEditorState extends State<PortraitEditor> {
   final Map<String, Uint8List> _previews = {};
   double _scalePercent = 100.0;
 
+  double _lastDrawW = 0;
+  double _lastDrawH = 0;
+
   @override
   void initState() {
     super.initState();
     _selectedGame = _games[0];
   }
 
-  void _resetEditor() {
-    setState(() {
-      _stepIdx = 0;
-      _croppedRaws.clear();
-      _previews.clear();
-      _initStep();
-    });
+  // 게임별 루트 저장 폴더 경로 (Portraits_게임명)
+  String _getGameRootPath() {
+    final String baseDir = Directory.current.path;
+    String safeGameName = _selectedGame.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
+    return "$baseDir/Portraits_$safeGameName";
   }
 
-  void _initStep() {
+  // 실제 파일이 저장될 상세 경로 (패스파인더만 캐릭터 폴더 추가)
+  String _getSavePath() {
+    String root = _getGameRootPath();
+    if (_selectedGame is PathfinderGame) {
+      String charName = _nameController.text.trim().isEmpty ? "UNKNOWN" : _nameController.text.trim();
+      String safeCharName = charName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
+      return "$root/$safeCharName";
+    } else {
+      return root;
+    }
+  }
+
+  // 폴더 열기 (이제 항상 게임명 폴더를 엽니다)
+  Future<void> _openGameFolder() async {
+    final String path = _getGameRootPath(); // 캐릭터 폴더가 아닌 게임 폴더 경로 사용
+    final Directory dir = Directory(path);
+
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+
+    if (Platform.isWindows) {
+      // 윈도우는 explorer 명령어가 가장 확실합니다.
+      await Process.run('explorer.exe', [path.replaceAll('/', '\\')]);
+    } else {
+      final Uri uri = Uri.file(path);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('폴더를 열 수 없습니다.'), backgroundColor: Colors.redAccent)
+        );
+      }
+    }
+  }
+
+  void _initStep(double drawW, double drawH) {
     if (_stepIdx >= _selectedGame.stepKeys.length) return;
+    
     String key = _selectedGame.stepKeys[_stepIdx];
     Size target = _selectedGame.targetSizes[key]!;
-    double aspect = target.width / target.height;
-    double h = 400.0; 
-    double w = h * aspect;
-    _posNotifier.value = Offset.zero;
-    _sizeNotifier.value = Size(w, h);
+    double targetAspect = target.width / target.height;
+
+    double initH = drawH * 0.8;
+    double initW = initH * targetAspect;
+
+    if (initW > drawW) {
+      initW = drawW * 0.8;
+      initH = initW / targetAspect;
+    }
+
+    _sizeNotifier.value = Size(initW, initH);
+    _posNotifier.value = Offset((drawW - initW) / 2, (drawH - initH) / 2);
   }
 
   Future<void> _pickImage() async {
@@ -97,7 +141,10 @@ class _PortraitEditorState extends State<PortraitEditor> {
           _image = File(pickedFile.path);
           _decodedImage = decoded;
           _imgSize = Size(decoded.width.toDouble(), decoded.height.toDouble());
-          _resetEditor();
+          _stepIdx = 0;
+          _croppedRaws.clear();
+          _previews.clear();
+          _lastDrawW = 0; 
         });
       }
     }
@@ -124,19 +171,14 @@ class _PortraitEditorState extends State<PortraitEditor> {
       _previews[key] = Uint8List.fromList(img.encodePng(cropped));
       _stepIdx++;
       if (_stepIdx < _selectedGame.stepKeys.length) {
-        _initStep();
+        _initStep(drawW, drawH);
       }
     });
   }
 
-  // 🛡️ 수정된 저장 로직: 메시지 색상을 흰색으로 변경
   Future<void> _saveAll() async {
-    final String baseDir = Directory.current.path;
-    String safeGameName = _selectedGame.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
+    final String path = _getSavePath();
     String charName = _nameController.text.trim().isEmpty ? "UNKNOWN" : _nameController.text.trim();
-    String safeCharName = charName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
-
-    final String path = "$baseDir/Portraits_$safeGameName/$safeCharName";
     
     try {
       await Directory(path).create(recursive: true);
@@ -144,12 +186,19 @@ class _PortraitEditorState extends State<PortraitEditor> {
         if (_croppedRaws[key] != null) {
           img.Image raw = _croppedRaws[key]!;
           Size targetSize = _selectedGame.targetSizes[key]!;
-          int targetW = (targetSize.width * (_scalePercent / 100.0)).toInt();
-          int targetH = (targetSize.height * (_scalePercent / 100.0)).toInt();
+          
+          bool isFixedScaleGame = _selectedGame is OriginBGGame || 
+                                 _selectedGame is IWD2Game || 
+                                 _selectedGame is PillarsOfEternityGame;
+
+          double currentScale = isFixedScaleGame ? 100.0 : _scalePercent;
+
+          int targetW = (targetSize.width * (currentScale / 100.0)).toInt();
+          int targetH = (targetSize.height * (currentScale / 100.0)).toInt();
 
           img.Image finalImg;
-          if (raw.width > targetW || raw.height > targetH) {
-            finalImg = img.copyResize(raw, width: targetW, height: targetH, interpolation: img.Interpolation.cubic);
+          if (raw.width != targetW || raw.height != targetH) {
+            finalImg = img.copyResize(raw, width: targetW, height: targetH, interpolation: img.Interpolation.average);
           } else {
             finalImg = raw;
           }
@@ -160,22 +209,15 @@ class _PortraitEditorState extends State<PortraitEditor> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '[$charName] 연성 완료: $path', 
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold) // 글자색 흰색
-            ), 
-            backgroundColor: const Color(0xFF2C2C2C), // 배경을 더 어두운 회색으로
-            duration: const Duration(seconds: 4),
+            content: Text('[$charName] 연성 완료: $path', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), 
+            backgroundColor: const Color(0xFF2C2C2C),
           )
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('저장 실패: $e', style: const TextStyle(color: Colors.white)), 
-            backgroundColor: Colors.redAccent
-          )
+          SnackBar(content: Text('저장 실패: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent)
         );
       }
     }
@@ -196,7 +238,6 @@ class _PortraitEditorState extends State<PortraitEditor> {
   }
 
   Widget _buildCroppingView() {
-    String currentStepKey = _selectedGame.stepKeys[_stepIdx];
     return LayoutBuilder(builder: (context, constraints) {
       double availableW = constraints.maxWidth - 80;
       double availableH = constraints.maxHeight - 80;
@@ -204,6 +245,13 @@ class _PortraitEditorState extends State<PortraitEditor> {
       double drawW = (availableW / availableH > imgAspect) ? availableH * imgAspect : availableW;
       double drawH = (availableW / availableH > imgAspect) ? availableH : availableW / imgAspect;
 
+      if (_lastDrawW != drawW || _lastDrawH != drawH) {
+        _lastDrawW = drawW;
+        _lastDrawH = drawH;
+        Future.microtask(() => _initStep(drawW, drawH));
+      }
+
+      String currentStepKey = _selectedGame.stepKeys[_stepIdx];
       return Center(
         child: Container(
           width: drawW, height: drawH,
@@ -225,10 +273,7 @@ class _PortraitEditorState extends State<PortraitEditor> {
               alignment: Alignment.bottomCenter, 
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 20), 
-                child: ElevatedButton(
-                  onPressed: () => _cropCurrent(drawW, drawH), 
-                  child: Text("[$currentStepKey 단계] 영역 확정")
-                )
+                child: ElevatedButton(onPressed: () => _cropCurrent(drawW, drawH), child: Text("[$currentStepKey 단계] 영역 확정"))
               )
             ),
           ]),
@@ -280,10 +325,13 @@ class _PortraitEditorState extends State<PortraitEditor> {
               if (align.y < 0) newPos = Offset(newPos.dx, newPos.dy + details.delta.dy);
             }
 
-            newW = newW.clamp(30.0, drawW - newPos.dx);
+            newW = newW.clamp(30.0, drawW);
+            if (newPos.dx < 0) { newW += newPos.dx; newPos = Offset(0, newPos.dy); }
+            if (newPos.dx + newW > drawW) { newW = drawW - newPos.dx; }
+
             double newH = newW / aspect;
+            if (newPos.dy < 0) { newH += newPos.dy; newPos = Offset(newPos.dx, 0); newW = newH * aspect; }
             if (newPos.dy + newH > drawH) { newH = drawH - newPos.dy; newW = newH * aspect; }
-            if (newPos.dx < 0 || newPos.dy < 0) return;
 
             _sizeNotifier.value = Size(newW, newH);
             _posNotifier.value = newPos;
@@ -305,16 +353,23 @@ class _PortraitEditorState extends State<PortraitEditor> {
       double imageHeight = constraints.maxHeight * 0.55;
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text("${_selectedGame.name} 연성 결과", style: const TextStyle(fontSize: 22, color: Colors.amber, fontWeight: FontWeight.bold)),
+          const Text("연성 결과 확인", style: TextStyle(fontSize: 22, color: Colors.amber, fontWeight: FontWeight.bold)),
           const SizedBox(height: 30),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: _selectedGame.stepKeys.map((key) {
               int currentW = _croppedRaws[key]?.width ?? 0;
-              int currentH = _croppedRaws[key]?.height ?? 0;
-              int targetW = (_selectedGame.targetSizes[key]!.width * (_scalePercent / 100.0)).toInt();
-              int targetH = (_selectedGame.targetSizes[key]!.height * (_scalePercent / 100.0)).toInt();
-              bool willResize = currentW > targetW || currentH > targetH;
+              
+              bool isFixedScale = _selectedGame is OriginBGGame || 
+                                 _selectedGame is IWD2Game || 
+                                 _selectedGame is PillarsOfEternityGame;
+
+              double currentScale = isFixedScale ? 100.0 : _scalePercent;
+
+              int targetW = (_selectedGame.targetSizes[key]!.width * (currentScale / 100.0)).toInt();
+              int targetH = (_selectedGame.targetSizes[key]!.height * (currentScale / 100.0)).toInt();
+              bool willResize = currentW != targetW || _croppedRaws[key]?.height != targetH;
+
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
@@ -322,23 +377,10 @@ class _PortraitEditorState extends State<PortraitEditor> {
                   children: [
                     Text("$key 단계", style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
-                    if (_previews[key] != null) Container(
-                      decoration: BoxDecoration(border: Border.all(color: Colors.white10)), 
-                      child: Image.memory(_previews[key]!, height: imageHeight, fit: BoxFit.contain)
-                    ),
+                    if (_previews[key] != null) Image.memory(_previews[key]!, height: imageHeight, fit: BoxFit.contain),
                     const SizedBox(height: 15),
-                    SizedBox(
-                      height: 40,
-                      child: Column(
-                        children: [
-                          Text("현재 크기: ${currentW}x$currentH", style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                          if (willResize)
-                            Text("(저장 시 ${targetW}x$targetH로 조정됨)", style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.bold))
-                          else
-                            const Text("(원본 크기로 저장됨)", style: TextStyle(fontSize: 11, color: Colors.greenAccent)),
-                        ],
-                      ),
-                    ),
+                    Text("현재 크기: ${currentW}x${_croppedRaws[key]?.height}", style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                    Text(willResize ? "(저장 시 ${targetW}x$targetH로 조정됨)" : "(원본 크기로 저장됨)", style: TextStyle(fontSize: 11, color: willResize ? Colors.redAccent : Colors.greenAccent)),
                   ],
                 ),
               );
@@ -356,6 +398,17 @@ class _PortraitEditorState extends State<PortraitEditor> {
   }
 
   Widget _buildSidePanel() {
+    String? specialMessage;
+    bool hideSlider = false;
+
+    if (_selectedGame is OriginBGGame || _selectedGame is IWD2Game) {
+      specialMessage = "시스템 상 공식 해상도만 지원됩니다";
+      hideSlider = true;
+    } else if (_selectedGame is PillarsOfEternityGame) {
+      specialMessage = "시스템 상 공식 해상도 이외에는\n화질이 저하될 수 있습니다";
+      hideSlider = true;
+    }
+
     return Container(
       width: 300, padding: const EdgeInsets.all(25), color: const Color(0xFF1E262D),
       child: Column(children: [
@@ -370,10 +423,34 @@ class _PortraitEditorState extends State<PortraitEditor> {
         const Text("캐릭터 이름", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
         TextField(controller: _nameController, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
         const SizedBox(height: 30),
-        const Text("저장 해상도 비율", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-        Text("${_scalePercent.toInt()}%", style: const TextStyle(color: Colors.white, fontSize: 24)),
-        Slider(value: _scalePercent, min: 10, max: 100, divisions: 9, activeColor: Colors.amber, onChanged: (v) => setState(() => _scalePercent = v)),
+        
+        if (hideSlider) ...[
+          const Icon(Icons.info_outline, color: Colors.amber, size: 28),
+          const SizedBox(height: 10),
+          Text(
+            specialMessage!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+          ),
+        ] else ...[
+          const Text("저장 해상도 비율", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+          Text("${_scalePercent.toInt()}%", style: const TextStyle(color: Colors.white, fontSize: 24)),
+          Slider(value: _scalePercent, min: 10, max: 100, divisions: 9, activeColor: Colors.amber, onChanged: (v) => setState(() => _scalePercent = v)),
+        ],
+
         const Spacer(),
+        // 버튼 클릭 시 이제 _openGameFolder를 호출하여 게임 루트 폴더를 엽니다.
+        OutlinedButton.icon(
+          onPressed: _openGameFolder,
+          icon: const Icon(Icons.folder_open, size: 18),
+          label: const Text("이미지 저장 폴더 열기"),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 45),
+            side: const BorderSide(color: Colors.blueGrey),
+            foregroundColor: Colors.white70,
+          ),
+        ),
+        const SizedBox(height: 10),
         ElevatedButton(onPressed: _pickImage, style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)), child: const Text("이미지 불러오기")),
       ]),
     );
