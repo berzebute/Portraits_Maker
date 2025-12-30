@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
-import 'package:url_launcher/url_launcher.dart'; 
 
 import 'games/base_game.dart';
 import 'games/infinity.dart';
@@ -67,49 +66,6 @@ class _PortraitEditorState extends State<PortraitEditor> {
   void initState() {
     super.initState();
     _selectedGame = _games[0];
-  }
-
-  // 게임별 루트 저장 폴더 경로 (Portraits_게임명)
-  String _getGameRootPath() {
-    final String baseDir = Directory.current.path;
-    String safeGameName = _selectedGame.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
-    return "$baseDir/Portraits_$safeGameName";
-  }
-
-  // 실제 파일이 저장될 상세 경로 (패스파인더만 캐릭터 폴더 추가)
-  String _getSavePath() {
-    String root = _getGameRootPath();
-    if (_selectedGame is PathfinderGame) {
-      String charName = _nameController.text.trim().isEmpty ? "UNKNOWN" : _nameController.text.trim();
-      String safeCharName = charName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
-      return "$root/$safeCharName";
-    } else {
-      return root;
-    }
-  }
-
-  // 폴더 열기 (이제 항상 게임명 폴더를 엽니다)
-  Future<void> _openGameFolder() async {
-    final String path = _getGameRootPath(); // 캐릭터 폴더가 아닌 게임 폴더 경로 사용
-    final Directory dir = Directory(path);
-
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-
-    if (Platform.isWindows) {
-      // 윈도우는 explorer 명령어가 가장 확실합니다.
-      await Process.run('explorer.exe', [path.replaceAll('/', '\\')]);
-    } else {
-      final Uri uri = Uri.file(path);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('폴더를 열 수 없습니다.'), backgroundColor: Colors.redAccent)
-        );
-      }
-    }
   }
 
   void _initStep(double drawW, double drawH) {
@@ -177,24 +133,51 @@ class _PortraitEditorState extends State<PortraitEditor> {
   }
 
   Future<void> _saveAll() async {
-    final String path = _getSavePath();
+    final String baseDir = Directory.current.path;
+    String safeGameName = _selectedGame.name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
     String charName = _nameController.text.trim().isEmpty ? "UNKNOWN" : _nameController.text.trim();
+    String safeCharName = charName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').replaceAll(' ', '_');
+
+    String path;
+    if (_selectedGame is PathfinderGame) {
+      path = "$baseDir/Portraits_$safeGameName/$safeCharName";
+    } else {
+      path = "$baseDir/Portraits_$safeGameName";
+    }
     
     try {
       await Directory(path).create(recursive: true);
       for (var key in _selectedGame.stepKeys) {
         if (_croppedRaws[key] != null) {
           img.Image raw = _croppedRaws[key]!;
-          Size targetSize = _selectedGame.targetSizes[key]!;
           
-          bool isFixedScaleGame = _selectedGame is OriginBGGame || 
-                                 _selectedGame is IWD2Game || 
-                                 _selectedGame is PillarsOfEternityGame;
+          int targetW, targetH;
 
-          double currentScale = isFixedScaleGame ? 100.0 : _scalePercent;
+          // 인피니티 엔진 특별 로직
+          if (_selectedGame is InfinityEngineGame) {
+            // 먼저 슬라이더 비율을 적용한 높이 계산
+            int scaledH = (raw.height * (_scalePercent / 100.0)).toInt();
+            int scaledW = (raw.width * (_scalePercent / 100.0)).toInt();
 
-          int targetW = (targetSize.width * (currentScale / 100.0)).toInt();
-          int targetH = (targetSize.height * (currentScale / 100.0)).toInt();
+            if (scaledH > 1024) {
+              targetH = 1024;
+              targetW = 652;
+            } else if (scaledH < 266) {
+              targetH = 266;
+              targetW = 169;
+            } else {
+              // 비율 적용 결과가 266~1024 사이면 그대로 사용
+              targetH = scaledH;
+              targetW = scaledW;
+            }
+          } else {
+            // 다른 게임들은 기존 로직(슬라이더 비율 반영) 유지
+            Size baseTarget = _selectedGame.targetSizes[key]!;
+            bool isFixed = _selectedGame is OriginBGGame || _selectedGame is IWD2Game || _selectedGame is PillarsOfEternityGame;
+            double currentScale = isFixed ? 100.0 : _scalePercent;
+            targetW = (baseTarget.width * (currentScale / 100.0)).toInt();
+            targetH = (baseTarget.height * (currentScale / 100.0)).toInt();
+          }
 
           img.Image finalImg;
           if (raw.width != targetW || raw.height != targetH) {
@@ -358,17 +341,24 @@ class _PortraitEditorState extends State<PortraitEditor> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: _selectedGame.stepKeys.map((key) {
-              int currentW = _croppedRaws[key]?.width ?? 0;
+              int curW = _croppedRaws[key]?.width ?? 0;
+              int curH = _croppedRaws[key]?.height ?? 0;
               
-              bool isFixedScale = _selectedGame is OriginBGGame || 
-                                 _selectedGame is IWD2Game || 
-                                 _selectedGame is PillarsOfEternityGame;
+              int targetW, targetH;
+              if (_selectedGame is InfinityEngineGame) {
+                int scaledH = (curH * (_scalePercent / 100.0)).toInt();
+                int scaledW = (curW * (_scalePercent / 100.0)).toInt();
+                if (scaledH > 1024) { targetH = 1024; targetW = 652; }
+                else if (scaledH < 266) { targetH = 266; targetW = 169; }
+                else { targetH = scaledH; targetW = scaledW; }
+              } else {
+                bool isFixed = _selectedGame is OriginBGGame || _selectedGame is IWD2Game || _selectedGame is PillarsOfEternityGame;
+                double scale = isFixed ? 100.0 : _scalePercent;
+                targetW = (_selectedGame.targetSizes[key]!.width * (scale / 100.0)).toInt();
+                targetH = (_selectedGame.targetSizes[key]!.height * (scale / 100.0)).toInt();
+              }
 
-              double currentScale = isFixedScale ? 100.0 : _scalePercent;
-
-              int targetW = (_selectedGame.targetSizes[key]!.width * (currentScale / 100.0)).toInt();
-              int targetH = (_selectedGame.targetSizes[key]!.height * (currentScale / 100.0)).toInt();
-              bool willResize = currentW != targetW || _croppedRaws[key]?.height != targetH;
+              bool resize = (curW != targetW || curH != targetH);
 
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -379,8 +369,9 @@ class _PortraitEditorState extends State<PortraitEditor> {
                     const SizedBox(height: 10),
                     if (_previews[key] != null) Image.memory(_previews[key]!, height: imageHeight, fit: BoxFit.contain),
                     const SizedBox(height: 15),
-                    Text("현재 크기: ${currentW}x${_croppedRaws[key]?.height}", style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                    Text(willResize ? "(저장 시 ${targetW}x$targetH로 조정됨)" : "(원본 크기로 저장됨)", style: TextStyle(fontSize: 11, color: willResize ? Colors.redAccent : Colors.greenAccent)),
+                    Text("크롭 크기: ${curW}x$curH", style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                    Text(resize ? "(저장 시 ${targetW}x$targetH로 조정)" : "(원본 그대로 저장)", 
+                         style: TextStyle(fontSize: 11, color: resize ? Colors.redAccent : Colors.greenAccent)),
                   ],
                 ),
               );
@@ -398,14 +389,17 @@ class _PortraitEditorState extends State<PortraitEditor> {
   }
 
   Widget _buildSidePanel() {
-    String? specialMessage;
+    String? msg;
     bool hideSlider = false;
 
-    if (_selectedGame is OriginBGGame || _selectedGame is IWD2Game) {
-      specialMessage = "시스템 상 공식 해상도만 지원됩니다";
+    // 인피니티 엔진은 이제 슬라이더를 숨기지 않습니다.
+    if (_selectedGame is InfinityEngineGame) {
+      msg = null; // 코멘트 삭제
+    } else if (_selectedGame is OriginBGGame || _selectedGame is IWD2Game) {
+      msg = "시스템 상 공식 해상도만 지원됩니다.";
       hideSlider = true;
     } else if (_selectedGame is PillarsOfEternityGame) {
-      specialMessage = "시스템 상 공식 해상도 이외에는\n화질이 저하될 수 있습니다";
+      msg = "시스템 상 공식 해상도 이외에는\n화질이 저하될 수 있습니다.";
       hideSlider = true;
     }
 
@@ -425,13 +419,9 @@ class _PortraitEditorState extends State<PortraitEditor> {
         const SizedBox(height: 30),
         
         if (hideSlider) ...[
-          const Icon(Icons.info_outline, color: Colors.amber, size: 28),
+          const Icon(Icons.auto_awesome, color: Colors.amber, size: 28),
           const SizedBox(height: 10),
-          Text(
-            specialMessage!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
-          ),
+          Text(msg!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5)),
         ] else ...[
           const Text("저장 해상도 비율", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
           Text("${_scalePercent.toInt()}%", style: const TextStyle(color: Colors.white, fontSize: 24)),
@@ -439,18 +429,6 @@ class _PortraitEditorState extends State<PortraitEditor> {
         ],
 
         const Spacer(),
-        // 버튼 클릭 시 이제 _openGameFolder를 호출하여 게임 루트 폴더를 엽니다.
-        OutlinedButton.icon(
-          onPressed: _openGameFolder,
-          icon: const Icon(Icons.folder_open, size: 18),
-          label: const Text("이미지 저장 폴더 열기"),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 45),
-            side: const BorderSide(color: Colors.blueGrey),
-            foregroundColor: Colors.white70,
-          ),
-        ),
-        const SizedBox(height: 10),
         ElevatedButton(onPressed: _pickImage, style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)), child: const Text("이미지 불러오기")),
       ]),
     );

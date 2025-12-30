@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "portrait_tool" "\0"
+            VALUE "FileDescription", "portraits_maker" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "portrait_tool" "\0"
+            VALUE "InternalName", "portraits_maker" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "portrait_tool.exe" "\0"
-            VALUE "ProductName", "portrait_tool" "\0"
+            VALUE "OriginalFilename", "portraits_maker.exe" "\0"
+            VALUE "ProductName", "portraits_maker" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
