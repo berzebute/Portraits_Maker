@@ -16,7 +16,7 @@
 
 ---
 
-## 지원되는 게임
+## ⚔️ 지원되는 게임
 
 * EE (BG1, BG2, IWD1)
 * Classics D&D Games (BG1, BG2, IWD1, IWD2)
