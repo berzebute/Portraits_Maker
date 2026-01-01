@@ -9,7 +9,7 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.1") # 버전 유지
+        self.root.title("초상화 만들기 v2.0.2") # 버전 업데이트
         
         # --- 경로 설정 최적화 (빌드 대응) ---
         if getattr(sys, 'frozen', False):
@@ -19,7 +19,7 @@ class PortraitMaker:
             self.base_dir = os.path.dirname(os.path.abspath(__file__))
             self.resource_path = self.base_dir
 
-        # 아이콘 설정 (복구 완료)
+        # 아이콘 설정
         try:
             icon_path = os.path.join(self.resource_path, "icon.ico")
             if os.path.exists(icon_path):
@@ -27,14 +27,16 @@ class PortraitMaker:
         except Exception as e:
             print(f"아이콘 로드 실패: {e}")
 
-        # 테마 및 설정 (원본 수치 복구)
+        # 테마 및 설정
         self.bg_dark = "#1e1e1e"
         self.bg_panel = "#252a30"
         self.accent_color = "#ffc107"
+        self.accent_rect_color = "#ffffff"
         self.text_white = "#ffffff"
         self.text_gray = "#aaaaaa"
         self.btn_disabled_bg = "#333a45"
         self.btn_disabled_fg = "#666666"
+        self.combo_bg = "#3d444d"
         
         self.main_font = ("Malgun Gothic", 13)
         self.bold_font = ("Malgun Gothic", 13, "bold")
@@ -103,8 +105,21 @@ class PortraitMaker:
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure("TCombobox", fieldbackground=self.bg_dark, background=self.bg_panel, 
-                        foreground=self.text_white, arrowcolor=self.accent_color, font=self.main_font)
+        style.configure("TCombobox", 
+                        fieldbackground=self.combo_bg, 
+                        background=self.bg_panel, 
+                        foreground=self.text_white, 
+                        arrowcolor=self.accent_color, 
+                        font=self.main_font,
+                        borderwidth=0)
+        
+        style.map("TCombobox",
+                  # 포커스가 없을 때(!focus)와 있을 때(focus) 모두 배경색 고정
+                  fieldbackground=[('readonly', self.combo_bg), ('!focus', self.combo_bg), ('focus', self.combo_bg)],
+                  # 글자색 고정
+                  foreground=[('readonly', self.text_white), ('!focus', self.text_white)],
+                  # 화살표 버튼 배경색
+                  background=[('readonly', self.bg_panel), ('active', self.combo_bg)])
 
     def setup_ui(self):
         self.header = tk.Frame(self.root, bg=self.bg_dark)
@@ -218,7 +233,7 @@ class PortraitMaker:
         if self.step_idx < len(self.current_steps):
             label = self.current_steps[self.step_idx]
             self.btn_next.config(text=f"{label} 자르기 ▶")
-            self.status_label.config(text=f"{label} 자를 부분을 선택해 주세요", fg=self.text_white)
+            self.status_label.config(text=f"{label} 사이즈로 사용할 부분을 선택해 주세요", fg=self.text_white)
             self.status_label.pack(pady=20, side="top", expand=False)
 
     def init_crop_frame(self):
@@ -234,7 +249,7 @@ class PortraitMaker:
             bw = bh * r
         x1, y1 = ((w - bw) / 2) + self.safe_margin, ((h - bh) / 2) + self.safe_margin
         x2, y2 = x1 + bw, y1 + bh
-        self.rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, outline=self.accent_color, width=self.rect_width)
+        self.rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, outline=self.accent_rect_color, width=self.rect_width)
 
     def next_step(self):
         if self.step != "CROPPING": return
@@ -248,14 +263,12 @@ class PortraitMaker:
 
     def get_current_crop(self):
         coords = self.canvas.coords(self.rect_id)
-        #x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
         x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
         rx1 = (x1 - self.safe_margin) / self.scale_ratio
         ry1 = (y1 - self.safe_margin) / self.scale_ratio
         rx2 = (x2 - self.safe_margin) / self.scale_ratio
         ry2 = (y2 - self.safe_margin) / self.scale_ratio
         
-        # [핵심 보정] 소수점 반올림 및 경계 스냅 (652/1024 오차 해결)
         rx1, ry1, rx2, ry2 = round(rx1), round(ry1), round(rx2), round(ry2)
         if rx1 < 10: rx1 = 0
         if ry1 < 10: ry1 = 0
@@ -300,7 +313,6 @@ class PortraitMaker:
             tk.Label(container, text=label, fg=self.accent_color, bg=self.bg_dark, font=self.bold_font).pack(pady=(10, 2))
             tk.Label(container, text=f"현재 크기: {int(orig_w)}x{int(orig_h)}", fg=self.text_white, bg=self.bg_dark, font=("Arial", 9)).pack()
             
-            # 실제 게임 타겟 사이즈와 비교하여 저장 시 리사이즈 여부 표시
             if orig_w > target_w or orig_h > target_h:
                 msg, color = f"* {target_w}x{target_h}로 축소됨", "#FF9800"
             else:
@@ -332,8 +344,12 @@ class PortraitMaker:
                 orig_w, orig_h = img.size
                 target_w, target_h = cfg["sizes"][label]
                 
-                # [수정] 픽셀 오차 해결을 위해 항상 타겟 사이즈로 최종 리사이징 (강제 정합)
-                final_img = img.resize((target_w, target_h), Image.LANCZOS)
+                # [수정 로직] 자른 이미지가 타겟보다 클 때만 축소 리사이징 진행
+                # 타겟보다 작으면(원본 유지) 크롭한 상태 그대로 저장
+                if orig_w > target_w or orig_h > target_h:
+                    final_img = img.resize((target_w, target_h), Image.LANCZOS)
+                else:
+                    final_img = img
                 
                 fn = f"{label}.png" if cfg.get("use_folder") else f"{name}{cfg['suffix'][label]}.{cfg['format'].lower()}"
                 save_full_path = os.path.join(final_path, fn)
@@ -346,15 +362,15 @@ class PortraitMaker:
                     else:
                         final_img.convert("RGB").save(save_full_path, "BMP")
                         
-            messagebox.showinfo("완료", f"'{name}' 포트레이트가 저장되었습니다:\n{final_path}")
+            messagebox.showinfo("완료", f"파일명 '{name}'로 포트레이트가 저장되었습니다.\n저장경로: {final_path}")
         except Exception as e: 
             messagebox.showerror("에러", str(e))
 
     def on_drag(self, event):
         if self.step != "CROPPING": return
         x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
-        min_x, min_y = self.safe_margin, self.safe_margin + self.frame_padding 
-        max_x, max_y = self.display_img.width + self.safe_margin -2, self.display_img.height + self.safe_margin - self.frame_padding - 2
+        min_x, min_y = self.safe_margin, self.safe_margin + self.frame_padding
+        max_x, max_y = self.display_img.width + self.safe_margin - 1, self.display_img.height + self.safe_margin - self.frame_padding - 2
         
         if self.mode == 'move':
             dx, dy = event.x - self.start_x, event.y - self.start_y
@@ -369,7 +385,6 @@ class PortraitMaker:
             target_size = self.configs[self.game_select.get()]["sizes"][self.current_steps[self.step_idx]]
             ratio = target_size[1] / target_size[0]
             
-            # 리사이즈 시 경계 스냅 처리
             cx, cy = event.x, event.y
             if cx > max_x - 8: cx = max_x
             if cx < min_x + 8: cx = min_x
@@ -431,7 +446,8 @@ class PortraitMaker:
         if self.step != "CROPPING": return
         self.start_x, self.start_y = event.x, event.y
         try:
-            x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
+            coords = self.canvas.coords(self.rect_id)
+            x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
             margin = 15
             self.mode = 'move'
             if abs(event.y - y1) < margin: self.mode = 'resize_top'
@@ -444,7 +460,8 @@ class PortraitMaker:
     def update_cursor(self, event):
         if self.step != "CROPPING": return
         try:
-            x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
+            coords = self.canvas.coords(self.rect_id)
+            x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
             margin = 15
             if abs(event.y - y1) < margin or abs(event.y - y2) < margin:
                 self.canvas.config(cursor="sb_v_double_arrow")
