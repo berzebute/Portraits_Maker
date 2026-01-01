@@ -9,20 +9,17 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.0")
+        self.root.title("초상화 만들기 v2.0.1") # 버전 유지
         
         # --- 경로 설정 최적화 (빌드 대응) ---
         if getattr(sys, 'frozen', False):
-            # .exe 실행 시 실행 파일이 있는 위치
             self.base_dir = os.path.dirname(sys.executable)
-            self.resource_path = sys._MEIPASS # 내부 리소스용
+            self.resource_path = sys._MEIPASS 
         else:
-            # .py 실행 시 소스 파일이 있는 위치
             self.base_dir = os.path.dirname(os.path.abspath(__file__))
             self.resource_path = self.base_dir
-        # ---------------------------------
 
-        # 아이콘 설정
+        # 아이콘 설정 (복구 완료)
         try:
             icon_path = os.path.join(self.resource_path, "icon.ico")
             if os.path.exists(icon_path):
@@ -30,7 +27,7 @@ class PortraitMaker:
         except Exception as e:
             print(f"아이콘 로드 실패: {e}")
 
-        # 테마 및 설정
+        # 테마 및 설정 (원본 수치 복구)
         self.bg_dark = "#1e1e1e"
         self.bg_panel = "#252a30"
         self.accent_color = "#ffc107"
@@ -41,16 +38,16 @@ class PortraitMaker:
         
         self.main_font = ("Malgun Gothic", 13)
         self.bold_font = ("Malgun Gothic", 13, "bold")
-        self.safe_margin = 20 
-        self.rect_width = 2 
-        self.min_size = 20 
-        self.frame_padding = 4
+        self.safe_margin = 21
+        self.rect_width = 1
+        self.min_size = 40
+        self.frame_padding = 1
         
         self.root.option_add("*TCombobox*Listbox.font", self.main_font)
         
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         start_w, start_h = int(sw*0.8), int(sh*0.8)
-        self.root.geometry(f"{start_w}x{start_h}")
+        self.root.geometry(f"{start_w}x{start_h}+20+20")
         self.root.minsize(start_w, start_h)
         
         self.last_width = start_w
@@ -250,10 +247,22 @@ class PortraitMaker:
             self.show_review()
 
     def get_current_crop(self):
-        x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
-        rx1, ry1 = (x1 - self.safe_margin) / self.scale_ratio, (y1 - self.safe_margin) / self.scale_ratio
-        rx2, ry2 = (x2 - self.safe_margin) / self.scale_ratio, (y2 - self.safe_margin) / self.scale_ratio
-        return self.original_img.crop((rx1, ry1, rx2, ry2))
+        coords = self.canvas.coords(self.rect_id)
+        #x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
+        x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
+        rx1 = (x1 - self.safe_margin) / self.scale_ratio
+        ry1 = (y1 - self.safe_margin) / self.scale_ratio
+        rx2 = (x2 - self.safe_margin) / self.scale_ratio
+        ry2 = (y2 - self.safe_margin) / self.scale_ratio
+        
+        # [핵심 보정] 소수점 반올림 및 경계 스냅 (652/1024 오차 해결)
+        rx1, ry1, rx2, ry2 = round(rx1), round(ry1), round(rx2), round(ry2)
+        if rx1 < 10: rx1 = 0
+        if ry1 < 10: ry1 = 0
+        if abs(rx2 - self.original_img.width) < 10: rx2 = self.original_img.width
+        if abs(ry2 - self.original_img.height) < 10: ry2 = self.original_img.height
+        
+        return self.original_img.crop((max(0, rx1), max(0, ry1), min(self.original_img.width, rx2), min(self.original_img.height, ry2)))
 
     def show_review(self):
         self.step = "REVIEW"
@@ -291,6 +300,7 @@ class PortraitMaker:
             tk.Label(container, text=label, fg=self.accent_color, bg=self.bg_dark, font=self.bold_font).pack(pady=(10, 2))
             tk.Label(container, text=f"현재 크기: {int(orig_w)}x{int(orig_h)}", fg=self.text_white, bg=self.bg_dark, font=("Arial", 9)).pack()
             
+            # 실제 게임 타겟 사이즈와 비교하여 저장 시 리사이즈 여부 표시
             if orig_w > target_w or orig_h > target_h:
                 msg, color = f"* {target_w}x{target_h}로 축소됨", "#FF9800"
             else:
@@ -307,8 +317,6 @@ class PortraitMaker:
         selected_game = self.game_select.get()
         cfg = self.configs[selected_game]
         
-        # --- 수정된 저장 경로 로직 ---
-        # self.base_dir는 __init__에서 실행 파일 위치로 잡혀 있습니다.
         safe_game_name = re.sub(r'[\\/:*?"<>|]', '', selected_game)
         save_dir = os.path.join(self.base_dir, safe_game_name)
         
@@ -324,10 +332,8 @@ class PortraitMaker:
                 orig_w, orig_h = img.size
                 target_w, target_h = cfg["sizes"][label]
                 
-                if orig_w > target_w or orig_h > target_h:
-                    final_img = img.resize((target_w, target_h), Image.LANCZOS)
-                else:
-                    final_img = img
+                # [수정] 픽셀 오차 해결을 위해 항상 타겟 사이즈로 최종 리사이징 (강제 정합)
+                final_img = img.resize((target_w, target_h), Image.LANCZOS)
                 
                 fn = f"{label}.png" if cfg.get("use_folder") else f"{name}{cfg['suffix'][label]}.{cfg['format'].lower()}"
                 save_full_path = os.path.join(final_path, fn)
@@ -347,8 +353,8 @@ class PortraitMaker:
     def on_drag(self, event):
         if self.step != "CROPPING": return
         x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
-        min_x, min_y = self.safe_margin, self.safe_margin + self.frame_padding
-        max_x, max_y = self.display_img.width + self.safe_margin, self.display_img.height + self.safe_margin - self.frame_padding
+        min_x, min_y = self.safe_margin, self.safe_margin + self.frame_padding 
+        max_x, max_y = self.display_img.width + self.safe_margin -2, self.display_img.height + self.safe_margin - self.frame_padding - 2
         
         if self.mode == 'move':
             dx, dy = event.x - self.start_x, event.y - self.start_y
@@ -363,11 +369,16 @@ class PortraitMaker:
             target_size = self.configs[self.game_select.get()]["sizes"][self.current_steps[self.step_idx]]
             ratio = target_size[1] / target_size[0]
             
+            # 리사이즈 시 경계 스냅 처리
+            cx, cy = event.x, event.y
+            if cx > max_x - 8: cx = max_x
+            if cx < min_x + 8: cx = min_x
+            
             cur_nx1, cur_ny1, cur_nx2, cur_ny2 = x1, y1, x2, y2
             
             if 'top' in self.mode:
                 anchor_y = y2
-                moving_y = max(min_y, min(event.y, anchor_y - self.min_size))
+                moving_y = max(min_y, min(cy, anchor_y - self.min_size))
                 new_h = anchor_y - moving_y
                 new_w = new_h / ratio
                 moving_x = min(max_x, x1 + new_w)
@@ -375,7 +386,7 @@ class PortraitMaker:
                 
             elif 'bottom' in self.mode:
                 anchor_y = y1
-                moving_y = min(max_y, max(event.y, anchor_y + self.min_size))
+                moving_y = min(max_y, max(cy, anchor_y + self.min_size))
                 new_h = moving_y - anchor_y
                 new_w = new_h / ratio
                 moving_x = min(max_x, x1 + new_w)
@@ -383,7 +394,7 @@ class PortraitMaker:
                 
             elif 'right' in self.mode:
                 anchor_x = x1
-                moving_x = min(max_x, max(event.x, anchor_x + self.min_size))
+                moving_x = min(max_x, max(cx, anchor_x + self.min_size))
                 new_w = moving_x - anchor_x
                 new_h = new_w * ratio
                 moving_y = min(max_y, y1 + new_h)
@@ -391,7 +402,7 @@ class PortraitMaker:
                 
             elif 'left' in self.mode:
                 anchor_x = x2
-                moving_x = max(min_x, min(event.x, anchor_x - self.min_size))
+                moving_x = max(min_x, min(cx, anchor_x - self.min_size))
                 new_w = anchor_x - moving_x
                 new_h = new_w * ratio
                 moving_y = min(max_y, y1 + new_h)
@@ -458,9 +469,9 @@ class PortraitMaker:
             
     def limit_char_name(self, *args):
         value = self.char_name_var.get()
-        filtered = re.sub(r'[^a-zA-Z0-9]', '', value)[:15]
-        if value != filtered:
-            self.char_name_var.set(filtered)
+        v = re.sub(r'[^a-zA-Z0-9]', '', value)[:15]
+        if value != v:
+            self.char_name_var.set(v)
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
