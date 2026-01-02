@@ -9,7 +9,7 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.3")
+        self.root.title("초상화 만들기 v2.0.4")
         
         # --- 경로 설정 최적화 ---
         if getattr(sys, 'frozen', False):
@@ -37,7 +37,7 @@ class PortraitMaker:
         self.btn_disabled_bg = "#333a45"
         self.btn_disabled_fg = "#666666"
         self.combo_bg = "#3d444d"
-        self.low_res_color = "#e91e63" # 저해상도 버튼용 색상
+        self.high_res_color = "#00bcd4" 
         
         self.main_font = ("Malgun Gothic", 13)
         self.bold_font = ("Malgun Gothic", 13, "bold")
@@ -63,14 +63,14 @@ class PortraitMaker:
         self.scale_ratio = 1.0
         self.step = "IDLE" 
         self.step_idx = 0
-        self.is_low_res = False # 저해상도 모드 상태 변수
+        self.is_high_res = False 
 
         # 게임 설정 구성
         self.configs = {
             "D&D EE (BG1, BG2, IWD1)": {
                 "steps": ["Large", "Medium"], 
-                "sizes": {"Large": (210, 330), "Medium": (76, 118)},
-                "max_h": 1024,
+                "sizes": {"Large": (210, 330), "Medium": (76, 118)}, 
+                "max_h": 512, 
                 "format": "BMP", "suffix": {"Large": "L", "Medium": "M"}
             },
             "D&D Classics (BG1, BG2, IWD1)": {
@@ -139,9 +139,8 @@ class PortraitMaker:
         self.bottom_btn_frame = tk.Frame(self.ctrl_panel, bg=self.bg_panel)
         self.bottom_btn_frame.pack(side="bottom", fill="x")
 
-        # 저해상도 모드 버튼 (초기에는 숨김 또는 비활성)
-        self.btn_low_res = tk.Button(self.bottom_btn_frame, text="저해상도 모드: OFF", command=self.toggle_low_res, bg="#444444", fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
-        self.btn_low_res.pack(fill="x", ipady=12, pady=(0, 10))
+        self.btn_high_res = tk.Button(self.bottom_btn_frame, text="고해상도 모드: OFF", command=self.toggle_high_res, bg="#444444", fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
+        self.btn_high_res.pack(fill="x", ipady=12, pady=(0, 10))
 
         self.btn_retry = tk.Button(self.bottom_btn_frame, text="다시 처음부터", command=self.reset_crop_process, bg=self.btn_disabled_bg, fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
         self.btn_retry.pack(fill="x", ipady=12, pady=(0, 10))
@@ -168,35 +167,32 @@ class PortraitMaker:
 
         self.review_frame = tk.Frame(self.workspace, bg=self.bg_dark)
         
-        # 초기 버튼 상태 업데이트
         self.check_ee_selection()
 
     def on_game_change(self, event=None):
-        self.is_low_res = False
+        self.is_high_res = False
         self.check_ee_selection()
         self.reset_crop_process()
 
     def check_ee_selection(self):
-        """EE 게임이 선택되었는지 확인하고 저해상도 버튼 상태를 조절"""
         if self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
-            self.btn_low_res.config(state="normal", bg="#333a45", fg=self.text_white)
-            self.update_low_res_button_ui()
+            self.btn_high_res.config(state="normal", bg="#333a45", fg=self.text_white)
+            self.update_high_res_button_ui()
         else:
-            self.is_low_res = False
-            self.btn_low_res.config(state="disabled", bg="#222", fg=self.btn_disabled_fg, text="저해상도 모드: 해당없음")
+            self.is_high_res = False
+            self.btn_high_res.config(state="disabled", bg="#222", fg=self.btn_disabled_fg, text="고해상도 모드: 해당없음")
 
-    def toggle_low_res(self):
-        """저해상도 모드 토글"""
-        self.is_low_res = not self.is_low_res
-        self.update_low_res_button_ui()
+    def toggle_high_res(self):
+        self.is_high_res = not self.is_high_res
+        self.update_high_res_button_ui()
         if self.step == "REVIEW":
             self.show_review()
 
-    def update_low_res_button_ui(self):
-        if self.is_low_res:
-            self.btn_low_res.config(text="저해상도 모드: ON", bg=self.low_res_color)
+    def update_high_res_button_ui(self):
+        if self.is_high_res:
+            self.btn_high_res.config(text="고해상도 모드: ON (최대 1024)", bg=self.high_res_color)
         else:
-            self.btn_low_res.config(text="저해상도 모드: OFF", bg="#333a45")
+            self.btn_high_res.config(text="고해상도 모드: OFF (표준 512)", bg="#333a45")
 
     def handle_drop(self, event):
         path = event.data
@@ -310,16 +306,14 @@ class PortraitMaker:
             base_w, base_h = game_cfg["sizes"][label]
             ratio = base_w / base_h
             
-            # 예상 저장 해상도 계산 (저해상도 모드용 수정)
-            if self.is_low_res and self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
-                if label == "Large":
-                    if orig_h > 512: # 원본이 512보다 큰 경우에만 축소
-                        save_h = 512
-                        save_w = round(save_h * ratio)
-                    else: # 이미 512보다 작거나 같으면 확대하지 않고 유지
-                        save_w, save_h = orig_w, orig_h
-                else: # Medium
-                    save_w, save_h = 76, 118
+            # 예상 저장 해상도 계산 (Medium도 고해상도 모드 시 1024까지 허용)
+            if self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
+                max_limit = 1024 if self.is_high_res else (512 if label == "Large" else 118)
+                if orig_h > max_limit:
+                    save_h = max_limit
+                    save_w = round(save_h * ratio)
+                else:
+                    save_w, save_h = orig_w, orig_h
             else:
                 if "max_h" in game_cfg:
                     if orig_h > game_cfg["max_h"]:
@@ -346,11 +340,11 @@ class PortraitMaker:
             tk.Label(container, text=label, fg=self.accent_color, bg=self.bg_dark, font=self.bold_font).pack(pady=(10, 2))
             tk.Label(container, text=f"현재 크기: {int(orig_w)}x{int(orig_h)}", fg=self.text_white, bg=self.bg_dark, font=("Arial", 9)).pack()
             
-            if self.is_low_res:
-                if label == "Large" and orig_h <= 512:
-                    msg, color = "* 원본 크기 유지 (이미 저해상도)", "#4CAF50"
+            if self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
+                if self.is_high_res:
+                    msg, color = f"* {save_w}x{save_h} (고해상도 적용)", self.high_res_color
                 else:
-                    msg, color = f"* {save_w}x{save_h} (저해상도)", self.low_res_color
+                    msg, color = f"* {save_w}x{save_h} (표준 해상도)", "#4CAF50"
             elif orig_h > save_h or orig_w > save_w:
                 msg, color = f"* {save_w}x{save_h}로 축소됨", "#FF9800"
             else:
@@ -378,18 +372,15 @@ class PortraitMaker:
                 base_w, base_h = cfg["sizes"][label]
                 ratio = base_w / base_h
                 
-                # 저장 해상도 결정 로직 (저해상도 모드용 확대 방지 로직 포함)
-                if self.is_low_res and selected_game == "D&D EE (BG1, BG2, IWD1)":
-                    if label == "Large":
-                        if orig_h > 512:
-                            target_h = 512
-                            target_w = round(target_h * ratio)
-                            final_img = img.resize((target_w, target_h), Image.LANCZOS)
-                        else:
-                            final_img = img
-                    else: # Medium
-                        target_w, target_h = 76, 118
+                if selected_game == "D&D EE (BG1, BG2, IWD1)":
+                    # 고해상도 모드 시 Medium도 1024까지 허용
+                    max_limit = 1024 if self.is_high_res else (512 if label == "Large" else 118)
+                    if orig_h > max_limit:
+                        target_h = max_limit
+                        target_w = round(target_h * ratio)
                         final_img = img.resize((target_w, target_h), Image.LANCZOS)
+                    else:
+                        final_img = img
                 elif "max_h" in cfg:
                     if orig_h > cfg["max_h"]:
                         final_h = cfg["max_h"]
@@ -414,7 +405,6 @@ class PortraitMaker:
             messagebox.showinfo("완료", f"파일명 '{name}'로 저장되었습니다.\n경로: {final_path}")
         except Exception as e: messagebox.showerror("에러", str(e))
 
-    # --- 이하 이벤트 핸들러 ---
     def on_drag(self, event):
         if self.step != "CROPPING": return
         x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
