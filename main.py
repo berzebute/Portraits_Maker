@@ -9,9 +9,9 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.2") # 버전 업데이트
+        self.root.title("초상화 만들기 v2.0.3")
         
-        # --- 경로 설정 최적화 (빌드 대응) ---
+        # --- 경로 설정 최적화 ---
         if getattr(sys, 'frozen', False):
             self.base_dir = os.path.dirname(sys.executable)
             self.resource_path = sys._MEIPASS 
@@ -37,6 +37,7 @@ class PortraitMaker:
         self.btn_disabled_bg = "#333a45"
         self.btn_disabled_fg = "#666666"
         self.combo_bg = "#3d444d"
+        self.low_res_color = "#e91e63" # 저해상도 버튼용 색상
         
         self.main_font = ("Malgun Gothic", 13)
         self.bold_font = ("Malgun Gothic", 13, "bold")
@@ -54,7 +55,6 @@ class PortraitMaker:
         
         self.last_width = start_w
         self.last_height = start_h
-        
         self.root.configure(bg=self.bg_dark)
         
         self.original_img = None
@@ -63,11 +63,14 @@ class PortraitMaker:
         self.scale_ratio = 1.0
         self.step = "IDLE" 
         self.step_idx = 0
+        self.is_low_res = False # 저해상도 모드 상태 변수
 
+        # 게임 설정 구성
         self.configs = {
             "D&D EE (BG1, BG2, IWD1)": {
                 "steps": ["Large", "Medium"], 
-                "sizes": {"Large": (652, 1024), "Medium": (652, 1024)},
+                "sizes": {"Large": (210, 330), "Medium": (76, 118)},
+                "max_h": 1024,
                 "format": "BMP", "suffix": {"Large": "L", "Medium": "M"}
             },
             "D&D Classics (BG1, BG2, IWD1)": {
@@ -105,27 +108,13 @@ class PortraitMaker:
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure("TCombobox", 
-                        fieldbackground=self.combo_bg, 
-                        background=self.bg_panel, 
-                        foreground=self.text_white, 
-                        arrowcolor=self.accent_color, 
-                        font=self.main_font,
-                        borderwidth=0)
-        
-        style.map("TCombobox",
-                  # 포커스가 없을 때(!focus)와 있을 때(focus) 모두 배경색 고정
-                  fieldbackground=[('readonly', self.combo_bg), ('!focus', self.combo_bg), ('focus', self.combo_bg)],
-                  # 글자색 고정
-                  foreground=[('readonly', self.text_white), ('!focus', self.text_white)],
-                  # 화살표 버튼 배경색
-                  background=[('readonly', self.bg_panel), ('active', self.combo_bg)])
+        style.configure("TCombobox", fieldbackground=self.combo_bg, background=self.bg_panel, foreground=self.text_white, arrowcolor=self.accent_color, font=self.main_font, borderwidth=0)
+        style.map("TCombobox", fieldbackground=[('readonly', self.combo_bg), ('!focus', self.combo_bg), ('focus', self.combo_bg)], foreground=[('readonly', self.text_white), ('!focus', self.text_white)], background=[('readonly', self.bg_panel), ('active', self.combo_bg)])
 
     def setup_ui(self):
         self.header = tk.Frame(self.root, bg=self.bg_dark)
         self.header.pack(side="top", fill="x")
-        tk.Label(self.header, text="Portraits Maker", font=("Malgun Gothic", 22, "bold"), 
-                 fg=self.text_white, bg=self.bg_dark, pady=20).pack()
+        tk.Label(self.header, text="Portraits Maker", font=("Malgun Gothic", 22, "bold"), fg=self.text_white, bg=self.bg_dark, pady=20).pack()
 
         self.main_container = tk.Frame(self.root, bg=self.bg_dark)
         self.main_container.pack(expand=True, fill="both")
@@ -138,7 +127,7 @@ class PortraitMaker:
         self.game_select = ttk.Combobox(self.ctrl_panel, values=list(self.configs.keys()), state="readonly", style="TCombobox", font=self.main_font)
         self.game_select.current(0)
         self.game_select.pack(fill="x", pady=(0, 30))
-        self.game_select.bind("<<ComboboxSelected>>", lambda e: self.reset_crop_process())
+        self.game_select.bind("<<ComboboxSelected>>", self.on_game_change)
 
         tk.Label(self.ctrl_panel, text="캐릭터 이름", font=("Malgun Gothic", 11, "bold"), fg=self.accent_color, bg=self.bg_panel).pack(anchor="w", pady=(0, 10))
         self.name_entry = tk.Entry(self.ctrl_panel, textvariable=self.char_name_var, font=self.main_font, bg=self.bg_dark, fg=self.text_white, insertbackground="white", bd=0, highlightthickness=1, highlightbackground="#444")
@@ -149,6 +138,10 @@ class PortraitMaker:
 
         self.bottom_btn_frame = tk.Frame(self.ctrl_panel, bg=self.bg_panel)
         self.bottom_btn_frame.pack(side="bottom", fill="x")
+
+        # 저해상도 모드 버튼 (초기에는 숨김 또는 비활성)
+        self.btn_low_res = tk.Button(self.bottom_btn_frame, text="저해상도 모드: OFF", command=self.toggle_low_res, bg="#444444", fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
+        self.btn_low_res.pack(fill="x", ipady=12, pady=(0, 10))
 
         self.btn_retry = tk.Button(self.bottom_btn_frame, text="다시 처음부터", command=self.reset_crop_process, bg=self.btn_disabled_bg, fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
         self.btn_retry.pack(fill="x", ipady=12, pady=(0, 10))
@@ -174,17 +167,43 @@ class PortraitMaker:
         self.btn_next = tk.Button(self.work_panel, text="자르기 ▶", command=self.next_step, bg=self.accent_color, fg=self.bg_dark, font=self.bold_font, relief="flat", state="disabled")
 
         self.review_frame = tk.Frame(self.workspace, bg=self.bg_dark)
+        
+        # 초기 버튼 상태 업데이트
+        self.check_ee_selection()
+
+    def on_game_change(self, event=None):
+        self.is_low_res = False
+        self.check_ee_selection()
+        self.reset_crop_process()
+
+    def check_ee_selection(self):
+        """EE 게임이 선택되었는지 확인하고 저해상도 버튼 상태를 조절"""
+        if self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
+            self.btn_low_res.config(state="normal", bg="#333a45", fg=self.text_white)
+            self.update_low_res_button_ui()
+        else:
+            self.is_low_res = False
+            self.btn_low_res.config(state="disabled", bg="#222", fg=self.btn_disabled_fg, text="저해상도 모드: 해당없음")
+
+    def toggle_low_res(self):
+        """저해상도 모드 토글"""
+        self.is_low_res = not self.is_low_res
+        self.update_low_res_button_ui()
+        if self.step == "REVIEW":
+            self.show_review()
+
+    def update_low_res_button_ui(self):
+        if self.is_low_res:
+            self.btn_low_res.config(text="저해상도 모드: ON", bg=self.low_res_color)
+        else:
+            self.btn_low_res.config(text="저해상도 모드: OFF", bg="#333a45")
 
     def handle_drop(self, event):
         path = event.data
-        if path.startswith('{') and path.endswith('}'):
-            path = path[1:-1]
-        
+        if path.startswith('{') and path.endswith('}'): path = path[1:-1]
         valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
-        if path.lower().endswith(valid_extensions):
-            self.process_image(path)
-        else:
-            messagebox.showwarning("경고", "지원하지 않는 파일 형식입니다.")
+        if path.lower().endswith(valid_extensions): self.process_image(path)
+        else: messagebox.showwarning("경고", "지원하지 않는 파일 형식입니다.")
 
     def load_image(self):
         path = filedialog.askopenfilename(filetypes=[("이미지 파일", "*.jpg *.jpeg *.png *.bmp *.webp")])
@@ -196,8 +215,7 @@ class PortraitMaker:
             self.original_img = Image.open(path)
             self.refresh_display_size()
             self.reset_crop_process()
-        except Exception as e:
-            messagebox.showerror("에러", f"이미지를 불러올 수 없습니다: {e}")
+        except Exception as e: messagebox.showerror("에러", f"이미지를 불러올 수 없습니다: {e}")
 
     def refresh_display_size(self):
         if not self.original_img: return
@@ -205,7 +223,6 @@ class PortraitMaker:
         avail_h = self.work_panel.winfo_height() - (self.safe_margin * 2) - 150
         avail_w = self.work_panel.winfo_width() - (self.safe_margin * 2)
         if avail_h < 100 or avail_w < 100: return
-        
         img_w, img_h = self.original_img.size
         self.scale_ratio = min(avail_w/img_w, avail_h/img_h, 1.0)
         display_w, display_h = int(img_w * self.scale_ratio), int(img_h * self.scale_ratio)
@@ -221,11 +238,9 @@ class PortraitMaker:
         self.review_frame.place_forget()
         self.canvas.place(relx=0.5, rely=0.5, anchor="center")
         self.btn_next.pack(pady=30, ipady=12, ipadx=60)
-        
         self.btn_next.config(state="normal", bg=self.accent_color)
         self.btn_save.config(state="disabled", bg="#444444")
         self.btn_retry.config(state="disabled", bg=self.btn_disabled_bg)
-        
         self.update_step_ui()
         self.init_crop_frame()
 
@@ -268,36 +283,52 @@ class PortraitMaker:
         ry1 = (y1 - self.safe_margin) / self.scale_ratio
         rx2 = (x2 - self.safe_margin) / self.scale_ratio
         ry2 = (y2 - self.safe_margin) / self.scale_ratio
-        
         rx1, ry1, rx2, ry2 = round(rx1), round(ry1), round(rx2), round(ry2)
         if rx1 < 10: rx1 = 0
         if ry1 < 10: ry1 = 0
         if abs(rx2 - self.original_img.width) < 10: rx2 = self.original_img.width
         if abs(ry2 - self.original_img.height) < 10: ry2 = self.original_img.height
-        
         return self.original_img.crop((max(0, rx1), max(0, ry1), min(self.original_img.width, rx2), min(self.original_img.height, ry2)))
 
     def show_review(self):
         self.step = "REVIEW"
         self.canvas.place_forget()
         self.btn_next.pack_forget()
-        
-        for widget in self.review_frame.winfo_children():
-            widget.destroy()
-            
+        for widget in self.review_frame.winfo_children(): widget.destroy()
         self.review_frame.place(relx=0.5, rely=0.5, anchor="center")
         
         self.root.update_idletasks()
         panel_h = self.work_panel.winfo_height()
         fixed_h = int(panel_h * 0.60) if panel_h > 100 else 400
-        
         game_cfg = self.configs[self.game_select.get()]
+
         for label, img in self.crops.items():
             container = tk.Frame(self.review_frame, bg=self.bg_dark)
             container.pack(side="left", padx=20, anchor="n")
             
             orig_w, orig_h = img.size
-            target_w, target_h = game_cfg["sizes"][label]
+            base_w, base_h = game_cfg["sizes"][label]
+            ratio = base_w / base_h
+            
+            # 예상 저장 해상도 계산
+            if self.is_low_res and self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
+                if label == "Large":
+                    save_h = 512
+                    save_w = round(save_h * ratio)
+                else: # Medium
+                    save_w, save_h = 76, 118
+            else:
+                if "max_h" in game_cfg:
+                    if orig_h > game_cfg["max_h"]:
+                        save_h = game_cfg["max_h"]
+                        save_w = round(save_h * ratio)
+                    else:
+                        save_w, save_h = orig_w, orig_h
+                else:
+                    if orig_w > base_w or orig_h > base_h:
+                        save_w, save_h = base_w, base_h
+                    else:
+                        save_w, save_h = orig_w, orig_h
             
             p_h = fixed_h
             p_w = int(p_h * (orig_w/orig_h))
@@ -305,7 +336,6 @@ class PortraitMaker:
             
             p_img = img.resize((p_w, p_h), Image.LANCZOS)
             tk_p = ImageTk.PhotoImage(p_img)
-            
             lbl_img = tk.Label(container, image=tk_p, bg="#000", bd=1, relief="solid")
             lbl_img.image = tk_p
             lbl_img.pack()
@@ -313,65 +343,73 @@ class PortraitMaker:
             tk.Label(container, text=label, fg=self.accent_color, bg=self.bg_dark, font=self.bold_font).pack(pady=(10, 2))
             tk.Label(container, text=f"현재 크기: {int(orig_w)}x{int(orig_h)}", fg=self.text_white, bg=self.bg_dark, font=("Arial", 9)).pack()
             
-            if orig_w > target_w or orig_h > target_h:
-                msg, color = f"* {target_w}x{target_h}로 축소됨", "#FF9800"
+            if self.is_low_res:
+                msg, color = f"* {save_w}x{save_h} (저해상도)", self.low_res_color
+            elif orig_h > save_h or orig_w > save_w:
+                msg, color = f"* {save_w}x{save_h}로 축소됨", "#FF9800"
             else:
                 msg, color = "* 원본 크기 유지", "#4CAF50"
-                
             tk.Label(container, text=msg, fg=color, bg=self.bg_dark, font=("Arial", 9, "bold")).pack(pady=(2, 0))
 
         self.btn_save.config(state="normal", bg=self.accent_color, fg=self.bg_dark)
         self.btn_retry.config(state="normal", bg="#333a45", fg=self.text_white)
-        self.status_label.config(text="최종 저장 전 해상도와 변경 사항을 확인하세요", fg=self.accent_color)
+        self.status_label.config(text="최종 저장 전 해상도를 확인하세요", fg=self.accent_color)
 
     def save_portraits(self):
         name = self.char_name_var.get().strip()
         selected_game = self.game_select.get()
         cfg = self.configs[selected_game]
-        
         safe_game_name = re.sub(r'[\\/:*?"<>|]', '', selected_game)
         save_dir = os.path.join(self.base_dir, safe_game_name)
         
         try:
-            if not os.path.exists(save_dir): 
-                os.makedirs(save_dir)
-            
+            if not os.path.exists(save_dir): os.makedirs(save_dir)
             final_path = os.path.join(save_dir, name) if cfg.get("use_folder") else save_dir
-            if not os.path.exists(final_path): 
-                os.makedirs(final_path)
+            if not os.path.exists(final_path): os.makedirs(final_path)
 
             for label, img in self.crops.items():
                 orig_w, orig_h = img.size
-                target_w, target_h = cfg["sizes"][label]
+                base_w, base_h = cfg["sizes"][label]
+                ratio = base_w / base_h
                 
-                # [수정 로직] 자른 이미지가 타겟보다 클 때만 축소 리사이징 진행
-                # 타겟보다 작으면(원본 유지) 크롭한 상태 그대로 저장
-                if orig_w > target_w or orig_h > target_h:
+                # 저장 해상도 결정 로직
+                if self.is_low_res and selected_game == "D&D EE (BG1, BG2, IWD1)":
+                    if label == "Large":
+                        target_h = 512
+                        target_w = round(target_h * ratio)
+                    else: # Medium
+                        target_w, target_h = 76, 118
                     final_img = img.resize((target_w, target_h), Image.LANCZOS)
+                elif "max_h" in cfg:
+                    if orig_h > cfg["max_h"]:
+                        final_h = cfg["max_h"]
+                        final_w = round(final_h * ratio)
+                        final_img = img.resize((final_w, final_h), Image.LANCZOS)
+                    else:
+                        final_img = img
                 else:
-                    final_img = img
+                    if orig_w > base_w or orig_h > base_h:
+                        final_img = img.resize((base_w, base_h), Image.LANCZOS)
+                    else:
+                        final_img = img
                 
                 fn = f"{label}.png" if cfg.get("use_folder") else f"{name}{cfg['suffix'][label]}.{cfg['format'].lower()}"
                 save_full_path = os.path.join(final_path, fn)
                 
-                if cfg["format"] == "PNG":
-                    final_img.save(save_full_path, "PNG")
+                if cfg["format"] == "PNG": final_img.save(save_full_path, "PNG")
                 else:
-                    if "Classics" in selected_game and label == "Small":
-                        final_img.convert("P", palette=Image.ADAPTIVE, colors=256).save(save_full_path, "BMP")
-                    else:
-                        final_img.convert("RGB").save(save_full_path, "BMP")
-                        
-            messagebox.showinfo("완료", f"파일명 '{name}'로 포트레이트가 저장되었습니다.\n저장경로: {final_path}")
-        except Exception as e: 
-            messagebox.showerror("에러", str(e))
+                    if "Classics" in selected_game and label == "Small": final_img.convert("P", palette=Image.ADAPTIVE, colors=256).save(save_full_path, "BMP")
+                    else: final_img.convert("RGB").save(save_full_path, "BMP")
+                    
+            messagebox.showinfo("완료", f"파일명 '{name}'로 저장되었습니다.\n경로: {final_path}")
+        except Exception as e: messagebox.showerror("에러", str(e))
 
+    # --- 이하 이벤트 핸들러 동일 ---
     def on_drag(self, event):
         if self.step != "CROPPING": return
         x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
         min_x, min_y = self.safe_margin, self.safe_margin + self.frame_padding
         max_x, max_y = self.display_img.width + self.safe_margin - 1, self.display_img.height + self.safe_margin - self.frame_padding - 2
-        
         if self.mode == 'move':
             dx, dy = event.x - self.start_x, event.y - self.start_y
             if x1 + dx < min_x: dx = min_x - x1
@@ -380,67 +418,53 @@ class PortraitMaker:
             if y2 + dy > max_y: dy = max_y - y2
             self.canvas.move(self.rect_id, dx, dy)
             self.start_x, self.start_y = event.x, event.y
-            
         elif self.mode.startswith('resize'):
             target_size = self.configs[self.game_select.get()]["sizes"][self.current_steps[self.step_idx]]
             ratio = target_size[1] / target_size[0]
-            
             cx, cy = event.x, event.y
             if cx > max_x - 8: cx = max_x
             if cx < min_x + 8: cx = min_x
-            
             cur_nx1, cur_ny1, cur_nx2, cur_ny2 = x1, y1, x2, y2
-            
             if 'top' in self.mode:
                 anchor_y = y2
                 moving_y = max(min_y, min(cy, anchor_y - self.min_size))
                 new_h = anchor_y - moving_y
-                new_w = new_h / ratio
+                new_w = round(new_h / ratio)
                 moving_x = min(max_x, x1 + new_w)
                 cur_ny1, cur_nx2 = moving_y, moving_x
-                
             elif 'bottom' in self.mode:
                 anchor_y = y1
                 moving_y = min(max_y, max(cy, anchor_y + self.min_size))
                 new_h = moving_y - anchor_y
-                new_w = new_h / ratio
+                new_w = round(new_h / ratio)
                 moving_x = min(max_x, x1 + new_w)
                 cur_ny2, cur_nx2 = moving_y, moving_x
-                
             elif 'right' in self.mode:
                 anchor_x = x1
                 moving_x = min(max_x, max(cx, anchor_x + self.min_size))
                 new_w = moving_x - anchor_x
-                new_h = new_w * ratio
+                new_h = round(new_w * ratio)
                 moving_y = min(max_y, y1 + new_h)
                 cur_nx2, cur_ny2 = moving_x, moving_y
-                
             elif 'left' in self.mode:
                 anchor_x = x2
                 moving_x = max(min_x, min(cx, anchor_x - self.min_size))
                 new_w = anchor_x - moving_x
-                new_h = new_w * ratio
+                new_h = round(new_w * ratio)
                 moving_y = min(max_y, y1 + new_h)
                 cur_nx1, cur_ny2 = moving_x, moving_y
-
             final_w = cur_nx2 - cur_nx1
             final_h = final_w * ratio
-            
             if cur_nx1 + final_w > max_x:
                 final_w = max_x - cur_nx1
                 final_h = final_w * ratio
             if cur_ny1 + final_h > max_y:
                 final_h = max_y - cur_ny1
                 final_w = final_h / ratio
-                
-            if 'top' in self.mode:
-                self.canvas.coords(self.rect_id, x1, y2 - final_h, x1 + final_w, y2)
-            elif 'bottom' in self.mode:
-                self.canvas.coords(self.rect_id, x1, y1, x1 + final_w, y1 + final_h)
-            elif 'right' in self.mode:
-                self.canvas.coords(self.rect_id, x1, y1, x1 + final_w, y1 + final_h)
-            elif 'left' in self.mode:
-                self.canvas.coords(self.rect_id, x2 - final_w, y1, x2, y1 + final_h)
+            if 'top' in self.mode: self.canvas.coords(self.rect_id, x1, y2 - final_h, x1 + final_w, y2)
+            elif 'bottom' in self.mode: self.canvas.coords(self.rect_id, x1, y1, x1 + final_w, y1 + final_h)
+            elif 'right' in self.mode: self.canvas.coords(self.rect_id, x1, y1, x1 + final_w, y1 + final_h)
+            elif 'left' in self.mode: self.canvas.coords(self.rect_id, x2 - final_w, y1, x2, y1 + final_h)
 
     def on_click(self, event):
         if self.step != "CROPPING": return
@@ -463,32 +487,25 @@ class PortraitMaker:
             coords = self.canvas.coords(self.rect_id)
             x1, y1, x2, y2 = coords[0], coords[1], coords[2], coords[3]
             margin = 15
-            if abs(event.y - y1) < margin or abs(event.y - y2) < margin:
-                self.canvas.config(cursor="sb_v_double_arrow")
-            elif abs(event.x - x1) < margin or abs(event.x - x2) < margin:
-                self.canvas.config(cursor="sb_h_double_arrow")
-            else:
-                self.canvas.config(cursor="fleur")
+            if abs(event.y - y1) < margin or abs(event.y - y2) < margin: self.canvas.config(cursor="sb_v_double_arrow")
+            elif abs(event.x - x1) < margin or abs(event.x - x2) < margin: self.canvas.config(cursor="sb_h_double_arrow")
+            else: self.canvas.config(cursor="fleur")
         except: pass
 
     def on_window_resize(self, event):
         if not self.original_img: return
-        curr_w = self.root.winfo_width()
-        curr_h = self.root.winfo_height()
-        
+        curr_w, curr_h = self.root.winfo_width(), self.root.winfo_height()
         if abs(curr_w - self.last_width) > 5 or abs(curr_h - self.last_height) > 5:
             self.last_width, self.last_height = curr_w, curr_h
             if self.step == "CROPPING":
                 self.refresh_display_size()
                 self.init_crop_frame()
-            elif self.step == "REVIEW":
-                self.show_review()
+            elif self.step == "REVIEW": self.show_review()
             
     def limit_char_name(self, *args):
         value = self.char_name_var.get()
         v = re.sub(r'[^a-zA-Z0-9]', '', value)[:15]
-        if value != v:
-            self.char_name_var.set(v)
+        if value != v: self.char_name_var.set(v)
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
