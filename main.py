@@ -9,7 +9,7 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.4")
+        self.root.title("초상화 만들기 v2.0.5")
         
         # --- 경로 설정 최적화 ---
         if getattr(sys, 'frozen', False):
@@ -67,6 +67,9 @@ class PortraitMaker:
         self.step_idx = 0
         self.is_high_res = False 
 
+        # --- 좌표 기억용 변수 ---
+        self.last_rect_coords = {} # { "Large": (x1, y1, x2, y2), ... }
+
         # 게임 설정 구성
         self.configs = {
             "D&D EE (BG1, BG2, IWD1)": {
@@ -110,21 +113,15 @@ class PortraitMaker:
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
-        
-        # 콤보박스 스타일
         style.configure("TCombobox", fieldbackground=self.combo_bg, background=self.bg_panel, foreground=self.text_white, arrowcolor=self.accent_color, font=self.main_font, borderwidth=0)
         style.map("TCombobox", fieldbackground=[('readonly', self.combo_bg), ('!focus', self.combo_bg), ('focus', self.combo_bg)], foreground=[('readonly', self.text_white), ('!focus', self.text_white)], background=[('readonly', self.bg_panel), ('active', self.combo_bg)])
-        
-        # 라디오버튼 스타일 수정: 마우스 호버 시 배경색 변화 방지
         style.configure("TRadiobutton", background=self.bg_panel, foreground=self.text_white, font=("Malgun Gothic", 10), focuscolor=self.bg_panel)
-        style.map("TRadiobutton", 
-                  background=[('active', self.bg_panel)], # 마우스 올렸을 때 배경색을 패널색으로 고정
-                  foreground=[('active', self.accent_color)]) # 마우스 올렸을 때 글자색만 강조
+        style.map("TRadiobutton", background=[('active', self.bg_panel)], foreground=[('active', self.accent_color)])
 
     def setup_ui(self):
         self.header = tk.Frame(self.root, bg=self.bg_dark)
         self.header.pack(side="top", fill="x")
-        tk.Label(self.header, text="Portraits Maker", font=("Malgun Gothic", 22, "bold"), fg=self.text_white, bg=self.bg_dark, pady=20).pack()
+        tk.Label(self.header, text="Portraits Maker", font=("Malgun Gothic", 18, "bold"), fg=self.text_white, bg=self.bg_dark, pady=10).pack()
 
         self.main_container = tk.Frame(self.root, bg=self.bg_dark)
         self.main_container.pack(expand=True, fill="both")
@@ -133,19 +130,16 @@ class PortraitMaker:
         self.ctrl_panel.pack(side="right", fill="y", padx=10, pady=10)
         self.ctrl_panel.pack_propagate(False)
 
-        # 게임 선택
         tk.Label(self.ctrl_panel, text="게임 선택", font=("Malgun Gothic", 11, "bold"), fg=self.accent_color, bg=self.bg_panel).pack(anchor="w", pady=(0, 5))
         self.game_select = ttk.Combobox(self.ctrl_panel, values=list(self.configs.keys()), state="readonly", style="TCombobox", font=self.main_font)
         self.game_select.current(0)
         self.game_select.pack(fill="x", pady=(0, 20))
         self.game_select.bind("<<ComboboxSelected>>", self.on_game_change)
 
-        # 캐릭터 이름
         tk.Label(self.ctrl_panel, text="캐릭터 이름", font=("Malgun Gothic", 11, "bold"), fg=self.accent_color, bg=self.bg_panel).pack(anchor="w", pady=(0, 5))
         self.name_entry = tk.Entry(self.ctrl_panel, textvariable=self.char_name_var, font=self.main_font, bg=self.bg_dark, fg=self.text_white, insertbackground="white", bd=0, highlightthickness=1, highlightbackground="#444")
         self.name_entry.pack(fill="x", ipady=10, pady=(0, 20))
 
-        # 가이드라인 색상 선택
         tk.Label(self.ctrl_panel, text="가이드라인 색상", font=("Malgun Gothic", 11, "bold"), fg=self.accent_color, bg=self.bg_panel).pack(anchor="w", pady=(0, 5))
         self.color_frame = tk.Frame(self.ctrl_panel, bg=self.bg_panel)
         self.color_frame.pack(fill="x", pady=(0, 30))
@@ -195,6 +189,7 @@ class PortraitMaker:
 
     def on_game_change(self, event=None):
         self.is_high_res = False
+        self.last_rect_coords = {} # 게임을 바꾸면 저장된 좌표 초기화
         self.check_ee_selection()
         self.reset_crop_process()
 
@@ -233,6 +228,7 @@ class PortraitMaker:
     def process_image(self, path):
         try:
             self.original_img = Image.open(path)
+            self.last_rect_coords = {} # 새 이미지를 불러오면 좌표 기억 초기화
             self.refresh_display_size()
             self.reset_crop_process()
         except Exception as e: messagebox.showerror("에러", f"이미지를 불러올 수 없습니다: {e}")
@@ -274,20 +270,33 @@ class PortraitMaker:
     def init_crop_frame(self):
         self.canvas.delete("all")
         self.canvas.create_image(self.safe_margin, self.safe_margin, anchor="nw", image=self.tk_display_img)
-        w, h = self.display_img.width, self.display_img.height
-        target_size = self.configs[self.game_select.get()]["sizes"][self.current_steps[self.step_idx]]
-        r = target_size[0] / target_size[1]
-        bw = w * 0.7
-        bh = bw / r
-        if bh > h * 0.9: 
-            bh = h * 0.8
-            bw = bh * r
-        x1, y1 = ((w - bw) / 2) + self.safe_margin, ((h - bh) / 2) + self.safe_margin
-        x2, y2 = x1 + bw, y1 + bh
+        
+        step_label = self.current_steps[self.step_idx]
+        
+        # 기억된 좌표가 있는지 확인
+        if step_label in self.last_rect_coords:
+            x1, y1, x2, y2 = self.last_rect_coords[step_label]
+        else:
+            w, h = self.display_img.width, self.display_img.height
+            target_size = self.configs[self.game_select.get()]["sizes"][step_label]
+            r = target_size[0] / target_size[1]
+            bw = w * 0.7
+            bh = bw / r
+            if bh > h * 0.9: 
+                bh = h * 0.8
+                bw = bh * r
+            x1, y1 = ((w - bw) / 2) + self.safe_margin, ((h - bh) / 2) + self.safe_margin
+            x2, y2 = x1 + bw, y1 + bh
+            
         self.rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, outline=self.frame_color_var.get(), width=self.rect_width)
 
     def next_step(self):
         if self.step != "CROPPING": return
+        
+        # 현재 좌표 저장
+        coords = self.canvas.coords(self.rect_id)
+        self.last_rect_coords[self.current_steps[self.step_idx]] = tuple(coords)
+        
         self.crops[self.current_steps[self.step_idx]] = self.get_current_crop()
         self.step_idx += 1
         if self.step_idx < len(self.current_steps):
@@ -526,7 +535,7 @@ class PortraitMaker:
             
     def limit_char_name(self, *args):
         value = self.char_name_var.get()
-        v = re.sub(r'[^a-zA-Z0-9]', '', value)[:15]
+        v = re.sub(r'[^a-zA-Z0-9_]', '', value)[:15]
         if value != v: self.char_name_var.set(v)
 
 if __name__ == "__main__":
