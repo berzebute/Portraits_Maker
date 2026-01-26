@@ -9,7 +9,7 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.5")
+        self.root.title("초상화 만들기 v2.0.6")
         
         # --- 경로 설정 최적화 ---
         if getattr(sys, 'frozen', False):
@@ -37,8 +37,8 @@ class PortraitMaker:
         self.btn_disabled_fg = "#666666"
         self.combo_bg = "#3d444d"
         self.high_res_color = "#00bcd4" 
+        self.convo_active_color = "#9c27b0"
         
-        # 프레임 색상 설정
         self.frame_color_var = tk.StringVar(value="#ffffff")
         
         self.main_font = ("Malgun Gothic", 13)
@@ -66,11 +66,10 @@ class PortraitMaker:
         self.step = "IDLE" 
         self.step_idx = 0
         self.is_high_res = False 
+        self.is_convo_mode = False 
 
-        # --- 좌표 기억용 변수 ---
-        self.last_rect_coords = {} # { "Large": (x1, y1, x2, y2), ... }
+        self.last_rect_coords = {} 
 
-        # 게임 설정 구성
         self.configs = {
             "D&D EE (BG1, BG2, IWD1)": {
                 "steps": ["Large", "Medium"], 
@@ -99,8 +98,8 @@ class PortraitMaker:
             },
             "Pillars of Eternity 1 & 2": {
                 "steps": ["Large", "Small"],
-                "sizes": {"Large": (210, 330), "Small": (76, 96)},
-                "format": "PNG", "suffix": {"Large": "_lg", "Small": "_sm"},
+                "sizes": {"Large": (210, 330), "Small": (76, 96), "Convo": (210, 330)},
+                "format": "PNG", "suffix": {"Large": "_lg", "Small": "_sm", "Convo": "_convo"},
                 "limit_filename": False
             }
         }
@@ -158,9 +157,10 @@ class PortraitMaker:
         self.bottom_btn_frame = tk.Frame(self.ctrl_panel, bg=self.bg_panel)
         self.bottom_btn_frame.pack(side="bottom", fill="x")
 
-        self.btn_high_res = tk.Button(self.bottom_btn_frame, text="고해상도 모드: OFF", command=self.toggle_high_res, bg="#444444", fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
-        self.btn_high_res.pack(fill="x", ipady=12, pady=(0, 10))
-
+        # 텍스트 변경: "2편 채팅창용 추가"
+        self.btn_convo = tk.Button(self.bottom_btn_frame, text="2편 채팅창용 추가: OFF", command=self.toggle_convo, bg="#333a45", fg=self.text_white, font=self.main_font, relief="flat")
+        self.btn_high_res = tk.Button(self.bottom_btn_frame, text="고해상도 모드: OFF", command=self.toggle_high_res, bg="#333a45", fg=self.text_white, font=self.main_font, relief="flat")
+        
         self.btn_retry = tk.Button(self.bottom_btn_frame, text="다시 처음부터", command=self.reset_crop_process, bg=self.btn_disabled_bg, fg=self.btn_disabled_fg, font=self.main_font, relief="flat", state="disabled")
         self.btn_retry.pack(fill="x", ipady=12, pady=(0, 10))
 
@@ -186,7 +186,7 @@ class PortraitMaker:
 
         self.review_frame = tk.Frame(self.workspace, bg=self.bg_dark)
         
-        self.check_ee_selection()
+        self.check_game_options()
 
     def update_rect_color(self):
         if hasattr(self, 'rect_id') and self.canvas.find_withtag(self.rect_id):
@@ -194,17 +194,27 @@ class PortraitMaker:
 
     def on_game_change(self, event=None):
         self.is_high_res = False
+        self.is_convo_mode = False
         self.last_rect_coords = {} 
-        self.check_ee_selection()
+        self.check_game_options()
         self.reset_crop_process()
 
-    def check_ee_selection(self):
-        if self.game_select.get() == "D&D EE (BG1, BG2, IWD1)":
-            self.btn_high_res.config(state="normal", bg="#333a45", fg=self.text_white)
+    def check_game_options(self):
+        selected = self.game_select.get()
+        self.btn_high_res.pack_forget()
+        self.btn_convo.pack_forget()
+
+        if selected == "Pillars of Eternity 1 & 2":
+            self.btn_convo.pack(fill="x", ipady=12, pady=(0, 10), before=self.btn_retry)
+            self.update_convo_button_ui()
+        else:
+            self.is_convo_mode = False
+
+        if selected == "D&D EE (BG1, BG2, IWD1)":
+            self.btn_high_res.pack(fill="x", ipady=12, pady=(0, 10), before=self.btn_retry)
             self.update_high_res_button_ui()
         else:
             self.is_high_res = False
-            self.btn_high_res.config(state="disabled", bg="#222", fg=self.btn_disabled_fg, text="고해상도 모드: 해당없음")
 
     def toggle_high_res(self):
         self.is_high_res = not self.is_high_res
@@ -212,11 +222,24 @@ class PortraitMaker:
         if self.step == "REVIEW":
             self.show_review()
 
+    def toggle_convo(self):
+        self.is_convo_mode = not self.is_convo_mode
+        self.update_convo_button_ui()
+        if self.original_img:
+            self.reset_crop_process()
+
     def update_high_res_button_ui(self):
         if self.is_high_res:
             self.btn_high_res.config(text="고해상도 모드: ON (최대 1024)", bg=self.high_res_color)
         else:
             self.btn_high_res.config(text="고해상도 모드: OFF (표준 512)", bg="#333a45")
+
+    def update_convo_button_ui(self):
+        # 텍스트 변경 반영
+        if self.is_convo_mode:
+            self.btn_convo.config(text="2편 채팅창용 추가: ON", bg=self.convo_active_color)
+        else:
+            self.btn_convo.config(text="2편 채팅창용 추가: OFF", bg="#333a45")
 
     def handle_drop(self, event):
         path = event.data
@@ -254,7 +277,12 @@ class PortraitMaker:
     def reset_crop_process(self):
         if not self.original_img: return
         game_cfg = self.configs[self.game_select.get()]
-        self.step_idx, self.current_steps, self.crops = 0, game_cfg["steps"], {}
+        
+        steps = list(game_cfg["steps"])
+        if self.game_select.get() == "Pillars of Eternity 1 & 2" and self.is_convo_mode:
+            if "Convo" not in steps: steps.append("Convo")
+        
+        self.step_idx, self.current_steps, self.crops = 0, steps, {}
         self.step = "CROPPING"
         self.review_frame.place_forget()
         self.canvas.place(relx=0.5, rely=0.5, anchor="center")
@@ -399,12 +427,9 @@ class PortraitMaker:
         selected_game = self.game_select.get()
         cfg = self.configs[selected_game]
         
-        # --- 파일명 제한 로직 적용 ---
         if cfg.get("limit_filename"):
-            # 구형 게임은 앞 7글자만 사용 (접미사가 붙어 총 8자 내외가 됨)
             save_name = name[:7]
         else:
-            # 신형 게임은 30자까지 허용
             save_name = name[:30]
 
         safe_game_name = re.sub(r'[\\/:*?"<>|]', '', selected_game)
@@ -441,7 +466,6 @@ class PortraitMaker:
                     else:
                         final_img = img
                 
-                # 파일명 생성
                 fn = f"{label}.png" if cfg.get("use_folder") else f"{save_name}{cfg['suffix'][label]}.{cfg['format'].lower()}"
                 save_full_path = os.path.join(final_path, fn)
                 
@@ -552,7 +576,6 @@ class PortraitMaker:
             
     def limit_char_name(self, *args):
         value = self.char_name_var.get()
-        # 입력 자체는 30자까지 넉넉하게 허용하여 게임 선택 시 잘리지 않게 함
         filtered = re.sub(r'[^a-zA-Z0-9_]', '', value)[:30]
         if value != filtered:
             self.char_name_var.set(filtered)
