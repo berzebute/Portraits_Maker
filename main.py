@@ -9,7 +9,7 @@ import sys
 class PortraitMaker:
     def __init__(self, root):
         self.root = root
-        self.root.title("초상화 만들기 v2.0.6")
+        self.root.title("초상화 만들기 v2.0.7")
         
         # --- 경로 설정 최적화 ---
         if getattr(sys, 'frozen', False):
@@ -157,7 +157,6 @@ class PortraitMaker:
         self.bottom_btn_frame = tk.Frame(self.ctrl_panel, bg=self.bg_panel)
         self.bottom_btn_frame.pack(side="bottom", fill="x")
 
-        # 텍스트 변경: "2편 채팅창용 추가"
         self.btn_convo = tk.Button(self.bottom_btn_frame, text="2편 채팅창용 추가: OFF", command=self.toggle_convo, bg="#333a45", fg=self.text_white, font=self.main_font, relief="flat")
         self.btn_high_res = tk.Button(self.bottom_btn_frame, text="고해상도 모드: OFF", command=self.toggle_high_res, bg="#333a45", fg=self.text_white, font=self.main_font, relief="flat")
         
@@ -235,7 +234,6 @@ class PortraitMaker:
             self.btn_high_res.config(text="고해상도 모드: OFF (표준 512)", bg="#333a45")
 
     def update_convo_button_ui(self):
-        # 텍스트 변경 반영
         if self.is_convo_mode:
             self.btn_convo.config(text="2편 채팅창용 추가: ON", bg=self.convo_active_color)
         else:
@@ -469,7 +467,14 @@ class PortraitMaker:
                 fn = f"{label}.png" if cfg.get("use_folder") else f"{save_name}{cfg['suffix'][label]}.{cfg['format'].lower()}"
                 save_full_path = os.path.join(final_path, fn)
                 
-                if cfg["format"] == "PNG": final_img.save(save_full_path, "PNG")
+                if cfg["format"] == "PNG": 
+                    final_img.save(save_full_path, "PNG")
+                    # --- Pillars of Eternity 채팅창 모드일 때 _sm과 동일한 _si 파일 추가 저장 로직 ---
+                    if selected_game == "Pillars of Eternity 1 & 2" and self.is_convo_mode and label == "Small":
+                        si_fn = f"{save_name}_si.png"
+                        si_save_path = os.path.join(final_path, si_fn)
+                        final_img.save(si_save_path, "PNG")
+                    # --------------------------------------------------------------------------
                 else:
                     if "Classics" in selected_game and label == "Small": final_img.convert("P", palette=Image.ADAPTIVE, colors=256).save(save_full_path, "BMP")
                     else: final_img.convert("RGB").save(save_full_path, "BMP")
